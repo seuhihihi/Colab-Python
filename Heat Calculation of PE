@@ -1,0 +1,158 @@
+import numpy as np
+import matplotlib.pyplot as plt
+
+# Constants (melt phase)
+D = 0.00842  # m
+P = np.pi * D
+A = np.pi * (D / 2)**2
+T_wall = 600  # deg C
+T0 = 350  # deg C
+T_transition = 500  # transition to gas
+rho_melt = 770  # kg/m3
+cp_melt = 2300  # J/kg.K
+k_melt = 0.33  # W/m.K
+mu_gas = 1e-5  # Pa·s (low viscosity for gas)
+rho_gas = 1.5  # kg/m3
+cp_gas = 1500  # J/kg.K
+k_gas = 0.03   # W/m·K
+m_dot = 0.5 / 3600  # kg/s
+Q_decomp = 200000  # J/kg
+
+# Heat decomposition rate function
+def alpha_deriv(T):
+    if T < 450:
+        return 0.0
+    elif 450 <= T < 520:
+        return 1.0 / 40.0
+    else:
+        return 0.0
+
+# Rheology models for melt
+def K_func(T):
+    return np.clip(1000 - (T - 350) * 3.6, 100, 1000)
+
+def n_func(T):
+    return np.clip(0.35 + (T - 350) * 0.0005, 0.35, 0.55)
+
+def k_func(T):
+    return np.clip(0.33 - 0.0002 * (T - 350), 0.27, 0.33)
+
+
+# Pipe setup
+L = 0.37  # m
+N = 500
+dx = L / N
+x_vals = np.linspace(0, L, N+1)
+T_vals = np.zeros(N+1)
+T_vals[0] = T0
+Nu_vals = np.zeros(N+1)
+h_vals = np.zeros(N+1)
+mu_vals = np.zeros(N+1)
+Pr_vals = np.zeros(N+1)
+
+# Initial flow parameters
+rho = rho_melt
+cp = cp_melt
+k = k_melt
+A = np.pi * (D / 2)**2
+u = m_dot / (rho * A)
+
+# Begin stepwise calculation
+for i in range(N):
+    T = T_vals[i]
+
+    # Check for phase change: switch to gas
+    if T >= T_transition:
+        rho = rho_gas
+        cp = cp_gas
+        k = k_gas
+        u = m_dot / (rho * A)  # new gas velocity
+        mu_eff = mu_gas
+        Pr = cp * mu_eff / k
+        Re = rho * u * D / mu_eff
+        Nu = 4.36  # constant Nu for laminar gas in pipe
+        h = Nu * k / D
+    else:
+        K = K_func(T)
+        n = n_func(T)
+        k = k_func(T)
+        gamma_dot = max((8 * u) / D, 1e-2)
+        mu_eff = K * gamma_dot**(n - 1)
+        Pr = cp * mu_eff / k
+        Re_g = (rho * u**(2 - n) * D**n) / (K * (8**(n - 1)))
+        if Re_g < 0.01:
+               Nu = 3.66
+        else:
+               Nu = 3.66 + (0.0658 * (Re_g * Pr)**0.33) / (1 + 0.04 * (Re_g * Pr)**0.33)
+        
+        h = Nu * k / D
+
+    # Save Nu mu and h
+    Nu_vals[i] = Nu
+    h_vals[i] = h
+    mu_vals[i] = mu_eff
+    Pr_vals[i] = Re_g
+
+    # Heat decomposition term
+    q_decomp = alpha_deriv(T) * Q_decomp
+    dTdx = (h * P / (m_dot * cp)) * (T_wall - T) - q_decomp / cp
+    T_vals[i + 1] = T + dTdx * dx
+
+# Time array (based on local velocity)
+u_vals = m_dot / (np.where(T_vals >= T_transition, rho_gas, rho_melt) * A)
+t_vals = np.cumsum(dx / u_vals)
+
+# === Plots ===
+plt.figure(figsize=(8,5))
+plt.plot(x_vals, T_vals)
+plt.xlabel("Pipe Length (m)")
+plt.ylabel("LDPE/Gas Temperature (°C)")
+plt.title("Temperature vs Pipe Length (including gasification)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(8,5))
+plt.plot(t_vals, T_vals)
+plt.xlabel("Flow Time (s)")
+plt.ylabel("Temperature (°C)")
+plt.title("Temperature vs Flow Time (with gas phase)")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(8,5))
+plt.plot(x_vals, Nu_vals)
+plt.xlabel("Pipe Length (m)")
+plt.ylabel("Nusselt Number (Nu)")
+plt.title("Nusselt Number vs Pipe Length")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(8,5))
+plt.plot(x_vals, h_vals)
+plt.xlabel("Pipe Length (m)")
+plt.ylabel("Heat Transfer Coefficient h (W/m²·K)")
+plt.title("Heat Transfer Coefficient vs Pipe Length")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(8,5))
+plt.plot(x_vals, mu_vals)
+plt.xlabel("Pipe Length (m)")
+plt.ylabel("Effective Viscosity μ_eff (Pa·s)")
+plt.title("Effective Viscosity vs Pipe Length")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
+
+plt.figure(figsize=(8,5))
+plt.plot(x_vals, Pr_vals)
+plt.xlabel("Pipe Length (m)")
+plt.ylabel("Effective Viscosity μ_eff (Pa·s)")
+plt.title("Effective Viscosity vs Pipe Length")
+plt.grid(True)
+plt.tight_layout()
+plt.show()
